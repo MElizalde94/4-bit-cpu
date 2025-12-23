@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include <bitset>
 
 class CPU4Bit {
 private:
@@ -70,8 +71,20 @@ public:
         OUT   = 0xB,  // Output register value
         INC   = 0xC,  // Increment register
         DEC   = 0xD,  // Decrement register
-        AND   = 0xE,  // Logical AND
+        ALU   = 0xE,  // Extended ALU operations (uses operand for sub-opcode)
         HLT   = 0xF   // Halt
+    };
+    
+    // ALU sub-opcodes (used when opcode = 0xE)
+    enum ALUOp {
+        AND_OP = 0x0,  // A & B -> A
+        OR_OP  = 0x1,  // A | B -> A
+        XOR_OP = 0x2,  // A ^ B -> A
+        NOT_OP = 0x3,  // ~A -> A
+        SHL_OP = 0x4,  // A << 1 -> A (shift left)
+        SHR_OP = 0x5,  // A >> 1 -> A (shift right)
+        ROL_OP = 0x6,  // Rotate A left
+        ROR_OP = 0x7   // Rotate A right
     };
     
     CPU4Bit() {
@@ -202,11 +215,78 @@ public:
                          << "=" << (int)getRegister(operand & 0x03) << std::endl;
                 break;
                 
-            case AND:
-                regA = mask4bit(regA & regB);
-                zeroFlag = (regA == 0);
-                std::cout << " AND A&B -> A=" << (int)regA << std::endl;
+            case ALU: {
+                // Extended ALU operations using operand as sub-opcode
+                switch(operand & 0x0F) {
+                    case AND_OP:
+                        regA = mask4bit(regA & regB);
+                        zeroFlag = (regA == 0);
+                        std::cout << " AND A&B -> A=" << (int)regA << " (0b" 
+                                 << std::bitset<4>(regA) << ")" << std::endl;
+                        break;
+                        
+                    case OR_OP:
+                        regA = mask4bit(regA | regB);
+                        zeroFlag = (regA == 0);
+                        std::cout << " OR A|B -> A=" << (int)regA << " (0b" 
+                                 << std::bitset<4>(regA) << ")" << std::endl;
+                        break;
+                        
+                    case XOR_OP:
+                        regA = mask4bit(regA ^ regB);
+                        zeroFlag = (regA == 0);
+                        std::cout << " XOR A^B -> A=" << (int)regA << " (0b" 
+                                 << std::bitset<4>(regA) << ")" << std::endl;
+                        break;
+                        
+                    case NOT_OP:
+                        regA = mask4bit(~regA);
+                        zeroFlag = (regA == 0);
+                        std::cout << " NOT ~A -> A=" << (int)regA << " (0b" 
+                                 << std::bitset<4>(regA) << ")" << std::endl;
+                        break;
+                        
+                    case SHL_OP:
+                        regA = mask4bit(regA << 1);
+                        zeroFlag = (regA == 0);
+                        std::cout << " SHL A<<1 -> A=" << (int)regA << " (0b" 
+                                 << std::bitset<4>(regA) << ")" << std::endl;
+                        break;
+                        
+                    case SHR_OP:
+                        regA = mask4bit(regA >> 1);
+                        zeroFlag = (regA == 0);
+                        std::cout << " SHR A>>1 -> A=" << (int)regA << " (0b" 
+                                 << std::bitset<4>(regA) << ")" << std::endl;
+                        break;
+                        
+                    case ROL_OP: {
+                        // Rotate left: shift left and wrap MSB to LSB
+                        uint8_t msb = (regA & 0x08) >> 3;  // Get bit 3
+                        regA = mask4bit((regA << 1) | msb);
+                        zeroFlag = (regA == 0);
+                        std::cout << " ROL rotate left -> A=" << (int)regA << " (0b" 
+                                 << std::bitset<4>(regA) << ")" << std::endl;
+                        break;
+                    }
+                        
+                    case ROR_OP: {
+                        // Rotate right: shift right and wrap LSB to MSB
+                        uint8_t lsb = (regA & 0x01) << 3;  // Get bit 0, move to bit 3
+                        regA = mask4bit((regA >> 1) | lsb);
+                        zeroFlag = (regA == 0);
+                        std::cout << " ROR rotate right -> A=" << (int)regA << " (0b" 
+                                 << std::bitset<4>(regA) << ")" << std::endl;
+                        break;
+                    }
+                        
+                    default:
+                        std::cout << " UNKNOWN ALU OP: 0x" << std::hex << (int)operand 
+                                 << std::dec << std::endl;
+                        break;
+                }
                 break;
+            }
                 
             case HLT:
                 running = false;
@@ -299,6 +379,109 @@ int main() {
     };
     
     cpu.loadProgram(program3);
+    cpu.run();
+    cpu.printState();
+    
+    std::cout << "\n=== Example 4: Bitwise Operations (AND, OR, XOR) ===" << std::endl;
+    cpu.reset();
+    
+    // Program: Demonstrate bitwise operations
+    // A=1100 (12), B=1010 (10)
+    std::vector<uint8_t> program4 = {
+        0x1C,  // 0: LDA #12   - Load 12 (0b1100) into A
+        0x2A,  // 1: LDB #10   - Load 10 (0b1010) into B
+        0xB0,  // 2: OUT A     - Output A=12
+        0xB1,  // 3: OUT B     - Output B=10
+        0xE0,  // 4: AND       - A & B = 0b1000 (8)
+        0xB0,  // 5: OUT A     - Output result
+        0x1C,  // 6: LDA #12   - Reload A
+        0xE1,  // 7: OR        - A | B = 0b1110 (14)
+        0xB0,  // 8: OUT A     - Output result
+        0x1C,  // 9: LDA #12   - Reload A
+        0xE2,  // A: XOR       - A ^ B = 0b0110 (6)
+        0xB0,  // B: OUT A     - Output result
+        0xF0   // C: HLT       - Halt
+    };
+    
+    cpu.loadProgram(program4);
+    cpu.run();
+    cpu.printState();
+    
+    std::cout << "\n=== Example 5: NOT Operation ===" << std::endl;
+    cpu.reset();
+    
+    // Program: Demonstrate NOT operation
+    std::vector<uint8_t> program5 = {
+        0x15,  // 0: LDA #5    - Load 5 (0b0101) into A
+        0xB0,  // 1: OUT A     - Output A=5
+        0xE3,  // 2: NOT       - ~A = 0b1010 (10)
+        0xB0,  // 3: OUT A     - Output A=10
+        0xE3,  // 4: NOT       - ~A = 0b0101 (5) - back to original
+        0xB0,  // 5: OUT A     - Output A=5
+        0xF0   // 6: HLT       - Halt
+    };
+    
+    cpu.loadProgram(program5);
+    cpu.run();
+    cpu.printState();
+    
+    std::cout << "\n=== Example 6: Shift Operations ===" << std::endl;
+    cpu.reset();
+    
+    // Program: Demonstrate shift left and shift right
+    std::vector<uint8_t> program6 = {
+        0x13,  // 0: LDA #3    - Load 3 (0b0011) into A
+        0xB0,  // 1: OUT A     - Output A=3
+        0xE4,  // 2: SHL       - A << 1 = 0b0110 (6)
+        0xB0,  // 3: OUT A     - Output A=6
+        0xE4,  // 4: SHL       - A << 1 = 0b1100 (12)
+        0xB0,  // 5: OUT A     - Output A=12
+        0xE5,  // 6: SHR       - A >> 1 = 0b0110 (6)
+        0xB0,  // 7: OUT A     - Output A=6
+        0xE5,  // 8: SHR       - A >> 1 = 0b0011 (3)
+        0xB0,  // 9: OUT A     - Output A=3
+        0xF0   // A: HLT       - Halt
+    };
+    
+    cpu.loadProgram(program6);
+    cpu.run();
+    cpu.printState();
+    
+    std::cout << "\n=== Example 7: Rotate Operations ===" << std::endl;
+    cpu.reset();
+    
+    // Program: Demonstrate rotate left and rotate right
+    std::vector<uint8_t> program7 = {
+        0x19,  // 0: LDA #9    - Load 9 (0b1001) into A
+        0xB0,  // 1: OUT A     - Output A=9
+        0xE6,  // 2: ROL       - Rotate left = 0b0011 (3)
+        0xB0,  // 3: OUT A     - Output A=3
+        0xE6,  // 4: ROL       - Rotate left = 0b0110 (6)
+        0xB0,  // 5: OUT A     - Output A=6
+        0xE7,  // 6: ROR       - Rotate right = 0b0011 (3)
+        0xB0,  // 7: OUT A     - Output A=3
+        0xE7,  // 8: ROR       - Rotate right = 0b1001 (9) - back to start
+        0xB0,  // 9: OUT A     - Output A=9
+        0xF0   // A: HLT       - Halt
+    };
+    
+    cpu.loadProgram(program7);
+    cpu.run();
+    cpu.printState();
+    
+    std::cout << "\n=== Example 8: Bit Masking (Practical Use) ===" << std::endl;
+    cpu.reset();
+    
+    // Program: Extract lower 2 bits using AND
+    std::vector<uint8_t> program8 = {
+        0x1F,  // 0: LDA #15   - Load 15 (0b1111) into A
+        0x23,  // 1: LDB #3    - Load 3 (0b0011) as mask into B
+        0xE0,  // 2: AND       - A & B = 0b0011 (3) - extract lower 2 bits
+        0xB0,  // 3: OUT A     - Output A=3
+        0xF0   // 4: HLT       - Halt
+    };
+    
+    cpu.loadProgram(program8);
     cpu.run();
     cpu.printState();
     
